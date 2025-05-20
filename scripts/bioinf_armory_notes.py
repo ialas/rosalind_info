@@ -4,10 +4,18 @@ Created on Fri May 16 13:47:35 2025
 
 @author: imraa
 """
+
+#%% Conda Environment
+# I used python-class
+
 #%% Libraries
 import numpy as np
 import pandas as pd
 import math
+import os
+
+from Bio import Entrez
+from Bio import SeqIO
 
 #%% Functions Created:
 
@@ -220,4 +228,274 @@ with open('rosalind_info/outputs/rosalind_frmt_answer_003.txt','w') as o:
 
 # Issue I noted:
     # The text version of the output from MEME. The sequence it found, it doesn't include the ambiguous areas. So if there was a part of the seequence that was different, lets say W on one and K on the others, it would choose 1. I had to manually put that into Rosalind
+    
+#%% 005: Pairwise Global Alignment
+
+# EMBOSS's Needle tool aligns DNA to DNA or RNA to RNA (protein) sequences.
+    # Normally, Scoring is defined as:
+        # +1 for matching symbols
+        # -1 for all mismatches
+        # -5 for a gap opening (each new gap)
+        # -1 for each gap extension (ex: a gap with 3 extensions is -3)
+    # Needle has:
+        # -10 for gap opening
+        # -1 for each gap extension
+        
+# Installed to conda environment (seen above)
+
+# Coding implementation:
+    # Given: 2 genbank IDs
+    # Output: maximum global alignment score between the two DNA strings
+
+f = open('rosalind_info/data/rosalind_need.txt', 'r')
+count=0
+for line in f:
+    string1 = line
+string_list = string1.split(' '); # separate
+# remove newline
+last_entr = string_list[-1]
+last_entr = last_entr.split('\n')[0];
+# replace newline entry
+string_list[-1] = last_entr
+gbk_id_list = string_list;
+
+Entrez.email = 'imraanalas@gmail.com'
+handle = Entrez.efetch(db='nucleotide', id = gbk_id_list, rettype="fasta");
+records = list(SeqIO.parse(handle, "fasta")) # get a list of SeqIO objets in Fasta Format
+for i in records:
+    print(i.seq)
+    
+# Use Emboss's Needle. 
+# Settings:
+    # output: pair
+    # matrix: DNAfull
+    # gap open, end gap open = 10, 10
+    # gap extend, end gap extend = 1.0, 1.0
+    # end gap = TRUE
+    
+#%% 006: FastQ format introduction
+
+# Sequencing quality is defined using the Phred quality score.
+    # Q = -10*log_10_(P)
+        # P is the probability that the corresponding base call is incorrect.
+        # It's per base. You can graph the phred score per base as a scatter plot.
+    # Q = 10 -> 0.1 probability (90% accuracy)
+    # Q = 20 -> 0.01 probability (99% accuracy)
+    # Q = 30 -> 0.001 probability (99.9% accuracy)
+
+# In a fastQ, the quality score (Q) is scored from 0-40.
+# Each quality score is represented by the ASCII characters 33-73.
+    # For instance, ! is ascii code 33, and represents a Q of 0.
+    # + is ascii code 43, and represents a Q of 10
+    
+# Converting FastQ to FASTA
+# Given: FastQ file
+# Output: FASTA file
+
+# Declare file locations (existing and to exist)
+input_file = 'rosalind_info/data/rosalind_tfsq.txt'
+output_file = 'rosalind_info/outputs/rosalind_tsfq_fasta.fasta'
+if not os.path.exists(output_file): # if the file doesn't exist
+    SeqIO.convert(input_file,'fastq', output_file,'fasta') # convert file to fasta and put in output location
+    
+#%% 007: Read Quality Distribution
+
+# Phred quality score is classic, but we would want to look at it in aggregate instead of per base.
+# Per-read quality score distribution:
+    # The distribution of the average quality of each read.
+    
+# FastQC is what is typically used for quick quality assessment.
+
+# Given: Quality Threshold & FastQ entries for multiple reads (of the same strain)
+# Return: # of reads with an average quality BELOW the threshold.
+    # They want # of reads BELOW the threshold
+
+# Implementation
+
+input_file = 'rosalind_info/data/rosalind_phre.txt'
+f = open(input_file, 'r')
+count=0
+string_all = [i.strip('\n') for i in f];
+
+# quality score
+qual_score = int(string_all.pop(0)) # the first entry is the quality, assume integer
+f.close() # had to close to make changes to the file to account for below
+
+# Issue: I don't think SeqIO likes when there's a random integer as the first line in the file.
+# I could code it such that I take the integer, store it as qual_score, then rewrite the file back without it.
+# But I don't plan on it.
+
+failed_qc = 0;
+for record in SeqIO.parse(input_file,"fastq"): # for each fastq record in the fastq file
+    phred = record.letter_annotations['phred_quality']; # get the list of phred scores, per base in the sequence
+    # print(phred)
+    ave_phred = sum(phred)/len(phred); # get the average phred score for one sequence
+    # print(ave_phred)
+    if ave_phred < qual_score: # BELOW the threshold
+        failed_qc += 1; # only on low threshold
+        
+#%% 008: Protein Translation
+
+# SMS suite has the Translate Tool to translate nucleotides into amino acids
+# BioPython possesses the translate() method for converting DNA or RNA strings to protein strings
+
+# Given: DNA string. Protein string.
+# Output: Determine which genetic code variant was used to translate the DNA into the protein string
+
+# Import
+from Bio.Seq import translate
+
+input_file = 'rosalind_info/data/rosalind_ptra(1).txt'
+f = open(input_file, 'r')
+count=0
+string_all = [i.strip('\n') for i in f];
+
+# dna
+coding_dna = string_all[0]
+# coding_dna = 'ATGGCCATGGCGCCCAGAACTGAGATCAATAGTACCCGTATTAACGGGTGA'
+# protein 
+protein_str = string_all[1]
+# protein_str = 'MAMAPRTEINSTRING'
+# genetic code variant list
+gcv_list = [1,2,3,4,5,6,9,10,11,12,13,14,15]
+prot_1 = [];
+prot_1_yes = [];
+prot_1_conf = [];
+prot_2 = [];
+prot_2_yes = [];
+prot_2_conf = [];
+
+for gcv in gcv_list:
+    prot_trans = translate(coding_dna, table=gcv,to_stop=True) # translate DNA using 1 of 15 gcv tables. continue until stop codon found
+    prot_trans_no_stop = translate(coding_dna, table=gcv,to_stop=False) # just try it
+    prot_1.append(prot_trans);
+    prot_2.append(prot_trans_no_stop);
+    if prot_trans == protein_str:
+        prot_1_yes.append(gcv)
+    if prot_trans_no_stop == protein_str:
+        prot_2_yes.append(gcv)
+    # if len(prot_trans) == len(protein_str):
+    #     prot_1_conf.append(gcv)
+    # if len(prot_trans_no_stop) == len(protein_str):
+    #     prot_2_conf.append(gcv)
+        
+if len(prot_1_yes) > 0:
+    print('With Stop:')
+    print(prot_1_yes)
+if len(prot_2_yes) > 0:
+    print('Without Stop:')
+    print(prot_2_yes)
+    
+# Note: My first attempt failed to find any exact matches. My second attempt did.
+# Theory: First attempt did not have any 100% identity matches, but still had 100% coverage.
+# The second attempt had 100% identity coverage (every base aligned perfectly).
+    
+#%% 009: Read Filtration by Quality
+
+# Filter out poor-quality reads using FastQ Quality Filter from fASTX (toolkit).
+    # Actually, keep and report the good-quality reads.
+
+# I think I can do it programmatically
+
+# Given: FastQ File that contains 1 additional row on top.
+    # First row has two integers. The first is the quality threshold. The second is the % of bases.
+    # Basically: If X is the % of bases value. Then X% of bases must be above the quality threshold for their phred score.
+    # Try a list comprehension to get True/Fase for greater than or less than teh quality score, then sum, then get a % relative to total length, then compare to % value X.
+    
+# Implementation
+
+# Manually changed file extension to fastq
+input_file = 'rosalind_info/data/rosalind_filt.fastq' 
+f = open(input_file, 'r')
+count=0
+string_all = [i.strip('\n') for i in f];
+
+# get quality threshold & percentage bases
+metric_vals = string_all[0];
+qual_thresh = metric_vals.split(' ')[0];
+qual_thresh = int(qual_thresh)
+perc_base = metric_vals.split(' ')[1];
+perc_base = int(perc_base)
+
+# example
+qual_thresh = 19;
+perc_base = 57;
+
+# manually remove the first row of the filt file
+
+# solve 
+filter_count = 0;
+phred_eval = [];
+phred_test = []
+phred_fail = []
+print(perc_base)
+for record in SeqIO.parse(input_file,"fastq"): # for each fastq record in the fastq file
+    phred = record.letter_annotations['phred_quality']; # get the list of phred scores, per base in the sequence
+    filter_score = sum([(i >= qual_thresh) for i in phred])/len(phred); # get % of above threshold bases
+    phred_eval.append(filter_score)
+    # phred_test.append(sum([(i > qual_thresh) for i in phred])/len(phred))
+    if filter_score >= (perc_base/100):
+        # print(sum([(i >= qual_thresh) for i in phred])/len(phred))
+        # phred_fail.append(sum([(i >= qual_thresh) for i in phred])/len(phred))
+        
+        # [(i > qual_thresh) for i in phred] returns a list of T/F, where T is if the phred count for that base was above the quality threshold
+        # sum[above] counts up all the phred scores that were above the threshold
+        # sum[above]/len(phred) tells us what % of phred scores were above the threshold
+        # we then compare that to the perc_base value (divided by 100)
+        # if the % of phred scores above the threshold is greater than the perc base, we would keep that 
+        # so we increment the filter_count
+        filter_count += 1;
+
+succ_phred = [b for b,i in enumerate(phred_eval) if i >= perc_base/100]
+succ_phred_2 = [b for b,i in enumerate(phred_eval) if i > perc_base/100]
+
+print('FASTQ Filtered Based On: Quality Threshold of ' + str(qual_thresh) + ' and Percentage of Bases (' + str(perc_base) + '%) is: ' + str(filter_count))
+
+# my first attempt assumed that they were looking for the reads that would be filtered as bad. i will now try the opposite
+    # Yup. needed to get the opposite value. Ambiguous question.
+
+#%% 010: Complimenting a Strand of DNA
+
+# Imports
+
+# Implementation
+input_file = 'rosalind_info/data/rosalind_rvco.txt'
+textStorage = textParser(input_file)
+
+# get the names
+names = [i for i in textStorage if i[0] == '>']
+# get the sequences
+sequences = [i for i in textStorage if i[0] != '>']
+# each seuqnece is on 2 rows, combine
+sequence_new = [];
+for i in range(0, len(sequences),2):
+    sequences_new.append([sequences[i] + sequences[i+1]])
+    l
+
+# dictionary comprehension to create a dictionary of names:sequences
+text_dict = {}
+text_dict = {k:v for (k,v) in zip(names, sequences)}
+
+# Generate a dictionary of complements (back when I thought I had to compare parts of strings against complements of all the strings)
+comp_dict = {}
+comp_seq = [];
+for i in text_dict:
+    reverse_seq = dna_reverse_complement(text_dict[i]);
+    comp_seq.append(reverse_seq)
+comp_dict = {k:v for (k,v) in zip(names, comp_seq)}
+
+# oh. all I have to do is check to see if the complement of the string is identical to the string.
+
+counter=0;
+for i in text_dict:
+    if text_dict[i] == dna_reverse_complement(text_dict[i]):
+        counter += 1;
+        
+print(counter)
+    
+
+for i in text_dict:
+    print(text_dict[i])
+    print(comp_dict[i])
+    
     
