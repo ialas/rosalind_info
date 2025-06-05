@@ -468,34 +468,132 @@ names = [i for i in textStorage if i[0] == '>']
 sequences = [i for i in textStorage if i[0] != '>']
 # each seuqnece is on 2 rows, combine
 sequence_new = [];
-for i in range(0, len(sequences),2):
-    sequences_new.append([sequences[i] + sequences[i+1]])
-    l
+counter = 0;
+while counter < len(sequences):
+    sequence_new.append([sequences[counter] + sequences[counter+1]])
+    counter += 2;
 
 # dictionary comprehension to create a dictionary of names:sequences
 text_dict = {}
-text_dict = {k:v for (k,v) in zip(names, sequences)}
+# text_dict = {k:v for (k,v) in zip(names, sequences)}
+text_dict = {k:v for (k,v) in zip(names, sequence_new)}
 
 # Generate a dictionary of complements (back when I thought I had to compare parts of strings against complements of all the strings)
-comp_dict = {}
-comp_seq = [];
-for i in text_dict:
-    reverse_seq = dna_reverse_complement(text_dict[i]);
-    comp_seq.append(reverse_seq)
-comp_dict = {k:v for (k,v) in zip(names, comp_seq)}
+# comp_dict = {}
+# comp_seq = [];
+# for i in text_dict:
+#     reverse_seq = dna_reverse_complement(text_dict[i]);
+#     comp_seq.append(reverse_seq)
+# comp_dict = {k:v for (k,v) in zip(names, comp_seq)}
 
 # oh. all I have to do is check to see if the complement of the string is identical to the string.
 
+comp_dict = dict.fromkeys(list(text_dict.keys()))
+
 counter=0;
 for i in text_dict:
-    if text_dict[i] == dna_reverse_complement(text_dict[i]):
+    comp_dict[i] = [dna_reverse_complement(text_dict[i][0])]
+    if text_dict[i][0] == dna_reverse_complement(text_dict[i][0]): # [0] is because dna_reverse_complement takes a string and also returns a string
         counter += 1;
         
 print(counter)
     
 
 for i in text_dict:
-    print(text_dict[i])
-    print(comp_dict[i])
+    print(text_dict[i][0])
+    print(comp_dict[i][0])
     
+#%% 011: Subotimal Local Alignment
+
+# Transposons are relatively short intervals of DNA that can, during the process of recombination, allow for duplication/deletion of regions 
     
+# Typically, a transposon don't necessarily align spatially in a consistent manner, so we must search across the the DNA string to find matches that don't classically align well.
+# To do this, we use LAlign, to find suboptimal alignments that would allow for transposons to insert/delete during recombination.
+
+# Given:
+    # Two DNA strings in fasta format that share an inexact repeat of about 32-40 bp (no more than 3 changes/indels).
+# Return:
+    # Total number of occurrences of the repeat, in the first string, then in the second string.
+    
+# So we need to find the substring of about 32-40 bp, then search for inexact matches of it in the two DNA strings.
+
+# Don't implement this here
+
+# Issues:
+    # The tool they linked from EBI, i think the link they had was out-of-date. There was no guidance on parameters to set.
+    # The FASTA package manual was unable to be downloaded, as the bioch.virginia.edu link doesn't seem to work anymore.
+# Solution:
+    # Khang Tsung Fei from the Questions section of the board recommended the usage of DotLet, which visualizes the alignment of two sequences against each other.
+    # By looking for the short (~32-40 bp) regions that shared alignment, I was able to find that there was only 7 and 5 of them.
+    
+#%% 012 Base Quality Distribution
+
+# Quality of reads often degrade over the course of a sequence.
+# Per Base Sequence Quality module of FastQC program genereates a quality distribution.
+
+# Given:
+    # Fastq file, quality threshold q
+# Return:
+    # Number of positions where the mean base quality falls below the threshold q (BELOW)
+    
+# Clarification: Is the threshold q different from the "accepted base quality threshold"?
+    # As in, is this simply just find the # of positions (bases) that hav ea phred_quality below q?
+    # or do I have to determine what positions have a phred quality score that is below the Q3 (25th percentile)?
+# Secondary Clarification:
+    # I think, that they:
+        # 1) Find the phred_quality per base
+        # 2) Average the phred_quality per base per sequence?
+            # So, if the phred_quality for base 1 is [10] for #1, and then [20] for #2, and so on. Average those, determine if the average falls below the quality threshold.
+            
+
+# Implementation
+
+# Imports
+import scipy
+from scipy import stats
+import numpy as np
+
+# 
+input_file = 'rosalind_info/data/rosalind_bphr.txt'
+f = open(input_file, 'r')
+count=0
+string_all = [i.strip('\n') for i in f];
+
+# quality score
+qual_score = int(string_all.pop(0)) # the first entry is the quality, assume integer
+f.close() # had to close to make changes to the file to account for below
+
+# Issue: I don't think SeqIO likes when there's a random integer as the first line in the file.
+# I could code it such that I take the integer, store it as qual_score, then rewrite the file back without it.
+# But I don't plan on it.
+
+# Manually take out the QC score from the original file before proceeding.
+
+failed_qc = qual_score;
+# failed_qc = 23;
+phred_scores = [];
+num_records = 0;
+# Get all the phred_scores
+for record in SeqIO.parse(input_file,"fastq"): # for each fastq record in the fastq file
+    phred = record.letter_annotations['phred_quality']; # get the list of phred scores, per base in the sequence
+    # print(phred)
+    phred_scores.append(phred);
+    num_records += 1; # Store the amount of sequences you have.
+
+phred_scores = np.array(phred_scores) # Convert the list of phred_scores into an array.
+phred_ave = (phred_scores.sum(axis=0)/num_records) # For each "base", as in each part of the sequence, average the phred scores across the sequences. So all of the 1st bp phred scores will be summed and then averaged to get the mean phred_score for the 1st bp.
+
+# Evaluate, for each position (bp), which positions (bp) failed the QC threhsold.
+failed_position_qc = 0;
+for ave_phred_score in phred_ave:
+    if ave_phred_score < failed_qc:
+        failed_position_qc += 1
+
+print('Number of positions where mean base quality falls below given threshold: ' + str(failed_position_qc))
+
+#%% 013: Base Filtration Quality
+
+# Instead of deleting poor quality bp in the reads, trim them.
+
+# Use the FastQ Quality Trimmer tool on Galaxy: https://usegalaxy.org/root?tool_id=fastq_quality_trimmer
+    # Set window_size to 1
